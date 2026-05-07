@@ -1,4 +1,5 @@
 #include <GL/freeglut.h>
+#include <cmath>
 #include <cstdlib>
 
 // RUET Rift: The 10-Hour Distortion
@@ -11,12 +12,21 @@ int windowHeight = 720;
 float playerX = 0.0f;
 float playerY = 0.0f;
 float playerZ = 0.0f;
+float playerYaw = 0.0f;
+float playerMoveSpeed = 8.0f;
+float playerTurnSpeed = 120.0f;
+
+bool keyStates[256] = {false};
+bool specialKeyStates[256] = {false};
 
 // Camera mode 0 = third-person, camera mode 1 = top-view.
 int cameraMode = 0;
 float cameraDistance = 18.0f;
 float cameraHeight = 9.0f;
-float cameraYaw = 35.0f;
+
+float degreesToRadians(float degrees) {
+    return degrees * 3.14159265f / 180.0f;
+}
 
 void drawGroundPlane() {
     // A flat rectangle is enough for the first base scene.
@@ -54,6 +64,25 @@ void drawCoordinateAxes() {
     glLineWidth(1.0f);
 }
 
+void drawPlayerPlaceholder() {
+    // A simple cube player is enough until the full humanoid model is added.
+    glDisable(GL_LIGHTING);
+
+    glPushMatrix();
+        glTranslatef(playerX, playerY + 0.75f, playerZ);
+        glRotatef(playerYaw, 0.0f, 1.0f, 0.0f);
+
+        glColor3f(0.95f, 0.75f, 0.18f);
+        glutSolidCube(1.5f);
+
+        // Small cone points toward the player's forward direction.
+        glTranslatef(0.0f, 0.0f, -1.15f);
+        glRotatef(-90.0f, 1.0f, 0.0f, 0.0f);
+        glColor3f(0.15f, 0.18f, 0.25f);
+        glutSolidCone(0.45f, 1.0f, 16, 1);
+    glPopMatrix();
+}
+
 void setupCamera() {
     // MODELVIEW controls the camera and object transformations.
     glMatrixMode(GL_MODELVIEW);
@@ -64,10 +93,14 @@ void setupCamera() {
     // 2. center position = the point the camera looks at
     // 3. up direction    = which direction should be considered upward
     if (cameraMode == 0) {
-        // Third-person camera: placed behind and above the temporary player.
-        float eyeX = playerX;
+        // Third-person camera: placed behind and above the player.
+        float yawRadians = degreesToRadians(playerYaw);
+        float forwardX = std::sin(yawRadians);
+        float forwardZ = -std::cos(yawRadians);
+
+        float eyeX = playerX - forwardX * cameraDistance;
         float eyeY = playerY + cameraHeight;
-        float eyeZ = playerZ + cameraDistance;
+        float eyeZ = playerZ - forwardZ * cameraDistance;
 
         gluLookAt(
             eyeX, eyeY, eyeZ,
@@ -82,11 +115,6 @@ void setupCamera() {
             0.0f,   0.0f,            -1.0f
         );
     }
-
-    // A small Y-axis rotation makes the base scene easier to read in third-person.
-    if (cameraMode == 0) {
-        glRotatef(cameraYaw, 0.0f, 1.0f, 0.0f);
-    }
 }
 
 void display() {
@@ -96,6 +124,7 @@ void display() {
     setupCamera();
     drawGroundPlane();
     drawCoordinateAxes();
+    drawPlayerPlaceholder();
 
     // GLUT_DOUBLE uses a back buffer. Swap makes the completed frame visible.
     glutSwapBuffers();
@@ -125,6 +154,7 @@ void reshape(int width, int height) {
 void keyboard(unsigned char key, int x, int y) {
     (void)x;
     (void)y;
+    keyStates[key] = true;
 
     switch (key) {
         case 27: // Esc
@@ -134,7 +164,10 @@ void keyboard(unsigned char key, int x, int y) {
         case 'r':
         case 'R':
             cameraMode = 0;
-            cameraYaw = 35.0f;
+            playerX = 0.0f;
+            playerY = 0.0f;
+            playerZ = 0.0f;
+            playerYaw = 0.0f;
             break;
 
         case 'c':
@@ -147,10 +180,83 @@ void keyboard(unsigned char key, int x, int y) {
     }
 }
 
+void keyboardUp(unsigned char key, int x, int y) {
+    (void)x;
+    (void)y;
+    keyStates[key] = false;
+}
+
+void specialKeyDown(int key, int x, int y) {
+    (void)x;
+    (void)y;
+    specialKeyStates[key] = true;
+}
+
+void specialKeyUp(int key, int x, int y) {
+    (void)x;
+    (void)y;
+    specialKeyStates[key] = false;
+}
+
+void updatePlayer(float deltaTime) {
+    if (specialKeyStates[GLUT_KEY_LEFT]) {
+        playerYaw += playerTurnSpeed * deltaTime;
+    }
+
+    if (specialKeyStates[GLUT_KEY_RIGHT]) {
+        playerYaw -= playerTurnSpeed * deltaTime;
+    }
+
+    // Movement is kept on the XZ plane. Y does not change.
+    // If yaw is the player's facing angle, sin(yaw) gives X direction
+    // and -cos(yaw) gives Z direction for forward movement.
+    float yawRadians = degreesToRadians(playerYaw);
+    float forwardX = std::sin(yawRadians);
+    float forwardZ = -std::cos(yawRadians);
+
+    // The right vector is perpendicular to the forward vector.
+    float rightX = std::cos(yawRadians);
+    float rightZ = std::sin(yawRadians);
+
+    float moveX = 0.0f;
+    float moveZ = 0.0f;
+
+    if (keyStates['w'] || keyStates['W']) {
+        moveX += forwardX;
+        moveZ += forwardZ;
+    }
+
+    if (keyStates['s'] || keyStates['S']) {
+        moveX -= forwardX;
+        moveZ -= forwardZ;
+    }
+
+    if (keyStates['d'] || keyStates['D']) {
+        moveX += rightX;
+        moveZ += rightZ;
+    }
+
+    if (keyStates['a'] || keyStates['A']) {
+        moveX -= rightX;
+        moveZ -= rightZ;
+    }
+
+    float length = std::sqrt(moveX * moveX + moveZ * moveZ);
+    if (length > 0.0f) {
+        moveX /= length;
+        moveZ /= length;
+
+        playerX += moveX * playerMoveSpeed * deltaTime;
+        playerZ += moveZ * playerMoveSpeed * deltaTime;
+    }
+}
+
 void update(int value) {
     (void)value;
 
     // Timer callback gives a steady animation/update point for future game logic.
+    updatePlayer(0.016f);
+
     glutPostRedisplay();
     glutTimerFunc(16, update, 0); // About 60 frames per second.
 }
@@ -180,6 +286,9 @@ int main(int argc, char** argv) {
     glutDisplayFunc(display);
     glutReshapeFunc(reshape);
     glutKeyboardFunc(keyboard);
+    glutKeyboardUpFunc(keyboardUp);
+    glutSpecialFunc(specialKeyDown);
+    glutSpecialUpFunc(specialKeyUp);
     glutTimerFunc(16, update, 0);
 
     glutMainLoop();
