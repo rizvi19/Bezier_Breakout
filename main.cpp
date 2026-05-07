@@ -29,10 +29,36 @@ int cameraMode = 0;
 float cameraDistance = 18.0f;
 float cameraHeight = 9.0f;
 
+enum GameState {
+    MENU,
+    PLAYING,
+    PAUSED,
+    LEVEL_COMPLETE,
+    GAME_WON
+};
+
+GameState gameState = MENU;
+
 int currentLevel = 1;
 int hoursRemaining = 10;
 int fragmentsCollected = 0;
-std::string currentObjective = "Explore the distorted RUET campus.";
+bool levelSolved[11] = {false};
+
+std::string levelObjectives[11] = {
+    "",
+    "Rotate the Sher-e-Bangla Hall shadows toward the center stone.",
+    "Find the Fibonacci order hidden in the garden trees.",
+    "Study the reflected road and choose the correct rotation.",
+    "Align the red, green, and blue Library prism beams.",
+    "Select the gravity direction that fixes the pendulum.",
+    "Place lamp receivers at inverse-square distances.",
+    "Activate prime clock markers at the CSE gate.",
+    "Stand at the correct projection viewpoint to reveal CORE.",
+    "Synchronize the resonance bridge platform phases.",
+    "Restore the HPCL Reality Core with the final sequence."
+};
+
+std::string currentObjective = "Press ENTER to start the distortion recovery.";
 
 float degreesToRadians(float degrees) {
     return degrees * 3.14159265f / 180.0f;
@@ -42,6 +68,81 @@ float distance2D(float x1, float z1, float x2, float z2) {
     float dx = x1 - x2;
     float dz = z1 - z2;
     return std::sqrt(dx * dx + dz * dz);
+}
+
+void resetPlayerPosition() {
+    playerX = 0.0f;
+    playerY = 0.0f;
+    playerZ = 0.0f;
+    playerYaw = 0.0f;
+    playerIsMoving = false;
+}
+
+void loadLevel(int level) {
+    if (level < 1) {
+        level = 1;
+    }
+    if (level > 10) {
+        level = 10;
+    }
+
+    currentLevel = level;
+    currentObjective = levelObjectives[currentLevel];
+    resetPlayerPosition();
+}
+
+void startGame() {
+    gameState = PLAYING;
+    currentLevel = 1;
+    hoursRemaining = 10;
+    fragmentsCollected = 0;
+
+    for (int i = 0; i < 11; i++) {
+        levelSolved[i] = false;
+    }
+
+    loadLevel(1);
+}
+
+void completeLevel() {
+    if (gameState != PLAYING || currentLevel < 1 || currentLevel > 10) {
+        return;
+    }
+
+    if (!levelSolved[currentLevel]) {
+        levelSolved[currentLevel] = true;
+        fragmentsCollected++;
+
+        if (hoursRemaining > 0) {
+            hoursRemaining--;
+        }
+    }
+
+    if (currentLevel >= 10) {
+        gameState = GAME_WON;
+        currentObjective = "Reality restored. The HPCL Reality Core is stable.";
+    } else {
+        loadLevel(currentLevel + 1);
+    }
+}
+
+void restartCurrentLevel() {
+    if (gameState == MENU) {
+        return;
+    }
+
+    if (gameState == GAME_WON) {
+        startGame();
+        return;
+    }
+
+    gameState = PLAYING;
+    loadLevel(currentLevel);
+}
+
+void updateLevelLogic() {
+    // Individual puzzle checks will be added later.
+    // This function is the central place where each level's rule will run.
 }
 
 bool checkAABB(float x, float z, float radius,
@@ -451,6 +552,24 @@ void drawHUD() {
     glDisable(GL_LIGHTING);
     glDisable(GL_DEPTH_TEST);
 
+    if (gameState == MENU) {
+        glColor3f(1.0f, 1.0f, 1.0f);
+        drawText2D(windowWidth * 0.5f - 230.0f, windowHeight * 0.5f + 35.0f,
+                   "RUET RIFT: THE 10-HOUR DISTORTION");
+        glColor3f(1.0f, 0.88f, 0.25f);
+        drawText2D(windowWidth * 0.5f - 95.0f, windowHeight * 0.5f - 10.0f,
+                   "Press ENTER to Start");
+        drawText2D(windowWidth * 0.5f - 150.0f, windowHeight * 0.5f - 45.0f,
+                   "WASD move | Arrow keys turn | C camera");
+
+        glEnable(GL_DEPTH_TEST);
+        glPopMatrix();
+        glMatrixMode(GL_PROJECTION);
+        glPopMatrix();
+        glMatrixMode(GL_MODELVIEW);
+        return;
+    }
+
     glColor3f(0.02f, 0.03f, 0.04f);
     drawText2D(18.0f, windowHeight - 23.0f, "RUET RIFT: THE 10-HOUR DISTORTION");
 
@@ -465,7 +584,20 @@ void drawHUD() {
     drawText2D(18.0f, windowHeight - 133.0f,
                "Objective: " + currentObjective);
 
-    if (isNearInteractionObject()) {
+    if (gameState == GAME_WON) {
+        glColor3f(0.2f, 1.0f, 0.45f);
+        drawText2D(windowWidth * 0.5f - 82.0f, windowHeight * 0.5f + 15.0f,
+                   "REALITY RESTORED");
+        drawText2D(windowWidth * 0.5f - 120.0f, windowHeight * 0.5f - 15.0f,
+                   "All 10 fragments collected");
+        drawText2D(windowWidth * 0.5f - 130.0f, windowHeight * 0.5f - 45.0f,
+                   "Press R to restart from Level 1");
+    } else if (gameState == PAUSED) {
+        glColor3f(1.0f, 0.88f, 0.25f);
+        drawText2D(windowWidth * 0.5f - 35.0f, windowHeight * 0.5f, "PAUSED");
+        drawText2D(windowWidth * 0.5f - 95.0f, windowHeight * 0.5f - 30.0f,
+                   "Press P to resume");
+    } else if (isNearInteractionObject()) {
         glColor3f(1.0f, 0.88f, 0.25f);
         drawText2D(18.0f, 32.0f, "Press E to interact");
     } else {
@@ -563,13 +695,25 @@ void keyboard(unsigned char key, int x, int y) {
             std::exit(0);
             break;
 
+        case 13: // Enter
+            if (gameState == MENU) {
+                startGame();
+            }
+            break;
+
+        case 'p':
+        case 'P':
+            if (gameState == PLAYING) {
+                gameState = PAUSED;
+                playerIsMoving = false;
+            } else if (gameState == PAUSED) {
+                gameState = PLAYING;
+            }
+            break;
+
         case 'r':
         case 'R':
-            cameraMode = 0;
-            playerX = 0.0f;
-            playerY = 0.0f;
-            playerZ = 0.0f;
-            playerYaw = 0.0f;
+            restartCurrentLevel();
             break;
 
         case 'c':
@@ -602,6 +746,10 @@ void specialKeyUp(int key, int x, int y) {
 
 void updatePlayer(float deltaTime) {
     playerIsMoving = false;
+
+    if (gameState != PLAYING) {
+        return;
+    }
 
     if (specialKeyStates[GLUT_KEY_LEFT]) {
         playerYaw += playerTurnSpeed * deltaTime;
@@ -674,6 +822,7 @@ void update(int value) {
     // Timer callback gives a steady animation/update point for future game logic.
     animationTime += 0.016f;
     updatePlayer(0.016f);
+    updateLevelLogic();
 
     glutPostRedisplay();
     glutTimerFunc(16, update, 0); // About 60 frames per second.
