@@ -1,7 +1,9 @@
 #include <GL/freeglut.h>
 #include <cmath>
 #include <cstdlib>
+#include <iostream>
 #include <string>
+#include <vector>
 
 // RUET Rift: The 10-Hour Distortion
 // Clean base project for a syllabus-friendly C++ OpenGL/GLUT program.
@@ -44,6 +46,19 @@ int hoursRemaining = 10;
 int fragmentsCollected = 0;
 bool levelSolved[11] = {false};
 
+struct InteractionObject {
+    std::string id;
+    float x, y, z;
+    bool active;
+    std::string type;
+};
+
+std::vector<InteractionObject> interactionObjects = {
+    {"test_switch", 5.0f, 0.0f, -8.0f, false, "switch"}
+};
+
+std::string interactionHint = "";
+
 std::string levelObjectives[11] = {
     "",
     "Rotate the Sher-e-Bangla Hall shadows toward the center stone.",
@@ -70,6 +85,18 @@ float distance2D(float x1, float z1, float x2, float z2) {
     return std::sqrt(dx * dx + dz * dz);
 }
 
+bool isNear(float x, float z, float range) {
+    return distance2D(playerX, playerZ, x, z) <= range;
+}
+
+void resetInteractionObjects() {
+    for (auto& object : interactionObjects) {
+        object.active = false;
+    }
+
+    interactionHint = "";
+}
+
 void resetPlayerPosition() {
     playerX = 0.0f;
     playerY = 0.0f;
@@ -88,6 +115,7 @@ void loadLevel(int level) {
 
     currentLevel = level;
     currentObjective = levelObjectives[currentLevel];
+    resetInteractionObjects();
     resetPlayerPosition();
 }
 
@@ -101,6 +129,7 @@ void startGame() {
         levelSolved[i] = false;
     }
 
+    resetInteractionObjects();
     loadLevel(1);
 }
 
@@ -143,6 +172,18 @@ void restartCurrentLevel() {
 void updateLevelLogic() {
     // Individual puzzle checks will be added later.
     // This function is the central place where each level's rule will run.
+    interactionHint = "";
+
+    if (gameState != PLAYING) {
+        return;
+    }
+
+    for (const auto& object : interactionObjects) {
+        if (isNear(object.x, object.z, 3.0f)) {
+            interactionHint = "Press E to interact";
+            return;
+        }
+    }
 }
 
 bool checkAABB(float x, float z, float radius,
@@ -178,6 +219,23 @@ bool isNearInteractionObject() {
     bool nearHPCLDoor = distance2D(playerX, playerZ, 52.0f, 24.0f) < 3.0f;
 
     return nearHallDoor || nearLibraryDoor || nearCSEDoor || nearHPCLDoor;
+}
+
+void handleInteraction() {
+    if (gameState != PLAYING) {
+        return;
+    }
+
+    for (auto& object : interactionObjects) {
+        if (isNear(object.x, object.z, 3.0f)) {
+            object.active = !object.active;
+            std::cout << "Interaction object '" << object.id
+                      << "' active = " << (object.active ? "true" : "false")
+                      << std::endl;
+            interactionHint = "Press E to interact";
+            return;
+        }
+    }
 }
 
 void drawScaledCube(float width, float height, float depth) {
@@ -403,6 +461,30 @@ void drawLamp(float x, float z) {
     glPopMatrix();
 }
 
+void drawInteractionObjects() {
+    // Placeholder interaction objects are drawn as simple colored switches.
+    // Later each puzzle can add its own switch, clue, fragment, or terminal here.
+    for (const auto& object : interactionObjects) {
+        glPushMatrix();
+            glTranslatef(object.x, object.y + 0.45f, object.z);
+
+            if (object.active) {
+                glColor3f(0.15f, 1.0f, 0.35f);
+            } else {
+                glColor3f(0.95f, 0.20f, 0.20f);
+            }
+
+            drawScaledCube(1.2f, 0.9f, 1.2f);
+
+            glPushMatrix();
+                glTranslatef(0.0f, 0.65f, 0.0f);
+                glColor3f(0.12f, 0.12f, 0.14f);
+                glutSolidSphere(0.28f, 16, 10);
+            glPopMatrix();
+        glPopMatrix();
+    }
+}
+
 void drawCampus() {
     // Main environment draw order: ground, roads, buildings, then decorations.
     drawGround();
@@ -597,9 +679,9 @@ void drawHUD() {
         drawText2D(windowWidth * 0.5f - 35.0f, windowHeight * 0.5f, "PAUSED");
         drawText2D(windowWidth * 0.5f - 95.0f, windowHeight * 0.5f - 30.0f,
                    "Press P to resume");
-    } else if (isNearInteractionObject()) {
+    } else if (!interactionHint.empty()) {
         glColor3f(1.0f, 0.88f, 0.25f);
-        drawText2D(18.0f, 32.0f, "Press E to interact");
+        drawText2D(18.0f, 32.0f, interactionHint);
     } else {
         glColor3f(0.85f, 0.88f, 0.92f);
         drawText2D(18.0f, 32.0f, "Move near a door or object to interact");
@@ -655,6 +737,7 @@ void display() {
 
     setupCamera();
     drawCampus();
+    drawInteractionObjects();
     drawSkyTimer();
     drawCoordinateAxes();
     drawPlayer();
@@ -719,6 +802,11 @@ void keyboard(unsigned char key, int x, int y) {
         case 'c':
         case 'C':
             cameraMode = (cameraMode + 1) % 2;
+            break;
+
+        case 'e':
+        case 'E':
+            handleInteraction();
             break;
 
         default:
