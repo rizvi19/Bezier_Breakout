@@ -59,6 +59,20 @@ std::vector<InteractionObject> interactionObjects = {
 
 std::string interactionHint = "";
 
+float pillar1Angle = 0.0f;
+float pillar2Angle = 60.0f;
+float pillar3Angle = 120.0f;
+bool hallGateOpen = false;
+
+const float sundialCenterX = -38.0f;
+const float sundialCenterZ = -34.0f;
+const float pillar1X = -44.0f;
+const float pillar1Z = -34.0f;
+const float pillar2X = -38.0f;
+const float pillar2Z = -40.0f;
+const float pillar3X = -32.0f;
+const float pillar3Z = -34.0f;
+
 std::string levelObjectives[11] = {
     "",
     "Rotate the Sher-e-Bangla Hall shadows toward the center stone.",
@@ -97,6 +111,13 @@ void resetInteractionObjects() {
     interactionHint = "";
 }
 
+void resetLevel1Puzzle() {
+    pillar1Angle = 0.0f;
+    pillar2Angle = 60.0f;
+    pillar3Angle = 120.0f;
+    hallGateOpen = false;
+}
+
 void resetPlayerPosition() {
     playerX = 0.0f;
     playerY = 0.0f;
@@ -116,6 +137,9 @@ void loadLevel(int level) {
     currentLevel = level;
     currentObjective = levelObjectives[currentLevel];
     resetInteractionObjects();
+    if (currentLevel == 1) {
+        resetLevel1Puzzle();
+    }
     resetPlayerPosition();
 }
 
@@ -155,6 +179,28 @@ void completeLevel() {
     }
 }
 
+bool angleMatches(float angle, float target) {
+    int normalizedAngle = ((int)angle % 360 + 360) % 360;
+    int normalizedTarget = ((int)target % 360 + 360) % 360;
+    return normalizedAngle == normalizedTarget;
+}
+
+bool isLevel1Solved() {
+    // Puzzle condition: all three fake shadow angles must match the
+    // intended sundial solution. Because we rotate by exact 30-degree steps,
+    // integer angle comparison is enough here.
+    return angleMatches(pillar1Angle, 30.0f) &&
+           angleMatches(pillar2Angle, 150.0f) &&
+           angleMatches(pillar3Angle, 270.0f);
+}
+
+void checkLevel1Completion() {
+    if (currentLevel == 1 && isLevel1Solved()) {
+        hallGateOpen = true;
+        completeLevel();
+    }
+}
+
 void restartCurrentLevel() {
     if (gameState == MENU) {
         return;
@@ -176,6 +222,15 @@ void updateLevelLogic() {
 
     if (gameState != PLAYING) {
         return;
+    }
+
+    if (currentLevel == 1) {
+        if (isNear(pillar1X, pillar1Z, 3.0f) ||
+            isNear(pillar2X, pillar2Z, 3.0f) ||
+            isNear(pillar3X, pillar3Z, 3.0f)) {
+            interactionHint = "Press E to rotate the sundial shadow";
+            return;
+        }
     }
 
     for (const auto& object : interactionObjects) {
@@ -224,6 +279,31 @@ bool isNearInteractionObject() {
 void handleInteraction() {
     if (gameState != PLAYING) {
         return;
+    }
+
+    if (currentLevel == 1) {
+        // Each E press rotates the nearby pillar's fake shadow by 30 degrees.
+        // The visible rotation is handled with glRotatef() in drawSundialShadow().
+        if (isNear(pillar1X, pillar1Z, 3.0f)) {
+            pillar1Angle += 30.0f;
+            if (pillar1Angle >= 360.0f) pillar1Angle -= 360.0f;
+            checkLevel1Completion();
+            return;
+        }
+
+        if (isNear(pillar2X, pillar2Z, 3.0f)) {
+            pillar2Angle += 30.0f;
+            if (pillar2Angle >= 360.0f) pillar2Angle -= 360.0f;
+            checkLevel1Completion();
+            return;
+        }
+
+        if (isNear(pillar3X, pillar3Z, 3.0f)) {
+            pillar3Angle += 30.0f;
+            if (pillar3Angle >= 360.0f) pillar3Angle -= 360.0f;
+            checkLevel1Completion();
+            return;
+        }
     }
 
     for (auto& object : interactionObjects) {
@@ -338,6 +418,29 @@ void drawHall() {
     glPopMatrix();
 
     drawDoor(-38.0f, -26.1f, 3.2f, 3.2f);
+
+    // Level 1 gate visual. It opens after the sundial shadows are aligned.
+    if (hallGateOpen) {
+        glPushMatrix();
+            glTranslatef(-40.0f, 1.4f, -29.4f);
+            glRotatef(35.0f, 0.0f, 1.0f, 0.0f);
+            glColor3f(0.16f, 0.12f, 0.08f);
+            drawScaledCube(2.0f, 2.8f, 0.25f);
+        glPopMatrix();
+
+        glPushMatrix();
+            glTranslatef(-36.0f, 1.4f, -29.4f);
+            glRotatef(-35.0f, 0.0f, 1.0f, 0.0f);
+            glColor3f(0.16f, 0.12f, 0.08f);
+            drawScaledCube(2.0f, 2.8f, 0.25f);
+        glPopMatrix();
+    } else {
+        glPushMatrix();
+            glTranslatef(-38.0f, 1.4f, -29.4f);
+            glColor3f(0.16f, 0.12f, 0.08f);
+            drawScaledCube(4.0f, 2.8f, 0.25f);
+        glPopMatrix();
+    }
 
     for (int i = 0; i < 5; i++) {
         float x = -47.0f + i * 4.5f;
@@ -485,6 +588,63 @@ void drawInteractionObjects() {
     }
 }
 
+void drawSundialShadow(float x, float z, float angle) {
+    // Fake shadow geometry: a thin dark rectangle lies just above the ground.
+    // glRotatef() rotates the local shadow direction around the Y axis.
+    // This is not real shadow mapping; it is simple transformed geometry.
+    glPushMatrix();
+        glTranslatef(x, 0.06f, z);
+        glRotatef(angle, 0.0f, 1.0f, 0.0f);
+        glTranslatef(0.0f, 0.0f, -2.8f);
+        glColor3f(0.04f, 0.04f, 0.04f);
+        drawScaledCube(0.35f, 0.04f, 5.6f);
+    glPopMatrix();
+}
+
+void drawSundialPillar(float x, float z, float angle) {
+    glPushMatrix();
+        glTranslatef(x, 0.0f, z);
+
+        glPushMatrix();
+            glColor3f(0.70f, 0.68f, 0.60f);
+            drawCylinder(0.38f, 3.1f);
+        glPopMatrix();
+
+        glPushMatrix();
+            glTranslatef(0.0f, 3.25f, 0.0f);
+            glColor3f(0.95f, 0.88f, 0.55f);
+            glutSolidSphere(0.48f, 18, 12);
+        glPopMatrix();
+    glPopMatrix();
+
+    drawSundialShadow(x, z, angle);
+}
+
+void drawLevel1SundialPuzzle() {
+    if (currentLevel != 1) {
+        return;
+    }
+
+    // Sher-e-Bangla Hall courtyard puzzle area.
+    drawFlatRect(sundialCenterX, sundialCenterZ, 18.0f, 13.0f, 0.42f, 0.39f, 0.34f);
+
+    glPushMatrix();
+        glTranslatef(sundialCenterX, 0.12f, sundialCenterZ);
+        glColor3f(0.90f, 0.82f, 0.36f);
+        drawScaledCube(1.7f, 0.18f, 1.7f);
+    glPopMatrix();
+
+    drawSundialPillar(pillar1X, pillar1Z, pillar1Angle);
+    drawSundialPillar(pillar2X, pillar2Z, pillar2Angle);
+    drawSundialPillar(pillar3X, pillar3Z, pillar3Angle);
+
+    glDisable(GL_LIGHTING);
+    glColor3f(1.0f, 0.95f, 0.55f);
+    drawText3D("When the sun refuses to move,", -50.0f, 1.2f, -44.0f);
+    drawText3D("move the shadows.", -50.0f, 0.7f, -44.0f);
+    drawText3D("Three shadows must meet where time began.", -50.0f, 0.2f, -44.0f);
+}
+
 void drawCampus() {
     // Main environment draw order: ground, roads, buildings, then decorations.
     drawGround();
@@ -518,6 +678,8 @@ void drawCampus() {
     drawLamp(-32.0f, 5.5f);
     drawLamp(18.0f, -5.5f);
     drawLamp(42.0f, 6.0f);
+
+    drawLevel1SundialPuzzle();
 }
 
 void drawCoordinateAxes() {
