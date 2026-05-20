@@ -1,0 +1,5 @@
+bezier_breakout
+bezier_breakout_warnings
+*.o
+*.out
+sounds/
